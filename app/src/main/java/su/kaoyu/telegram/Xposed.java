@@ -27,13 +27,7 @@ import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.XposedHelpers;
 import de.robv.android.xposed.callbacks.XC_LoadPackage;
 
-import static de.robv.android.xposed.XposedHelpers.findAndHookMethod;
-import static de.robv.android.xposed.XposedHelpers.findClass;
-import static de.robv.android.xposed.XposedHelpers.findField;
-import static de.robv.android.xposed.XposedHelpers.findMethodBestMatch;
-import static de.robv.android.xposed.XposedHelpers.findMethodExact;
-import static de.robv.android.xposed.XposedHelpers.getStaticIntField;
-import static de.robv.android.xposed.XposedHelpers.getSurroundingThis;
+import static de.robv.android.xposed.XposedHelpers.*;
 
 public class Xposed implements IXposedHookLoadPackage {
 
@@ -44,30 +38,43 @@ public class Xposed implements IXposedHookLoadPackage {
         if (!"org.telegram.messenger".equals(loadPackageParam.packageName)) {
             return;
         }
-        final Class<?> Emoji = findClass("org.telegram.android.Emoji", loadPackageParam.classLoader);
 
-        findAndHookMethod(Emoji,
-                "replaceEmoji", CharSequence.class, Paint.FontMetricsInt.class, int.class,
-                new XC_MethodReplacement() {
-                    @Override
-                    protected Object replaceHookedMethod(MethodHookParam methodHookParam) throws Throwable {
-                        XSharedPreferences preferences = new XSharedPreferences(loadPackageParam.packageName, "mainconfig");
-                        if (preferences.getBoolean("use_android_emoji", true)) {
-                            CharSequence cs = ((CharSequence) methodHookParam.args[0]);
-                            if (cs == null || cs.length() == 0) {
-                                return cs;
-                            }
-                            Spannable s;
-                            if (cs instanceof Spannable) {
-                                s = (Spannable) cs;
-                            } else {
-                                s = Spannable.Factory.getInstance().newSpannable(cs);
-                            }
-                            return s;
-                        }
-                        return XposedBridge.invokeOriginalMethod(methodHookParam.method, methodHookParam.thisObject, methodHookParam.args);
+        Class<?> BuildConfigClass = findClass("org.telegram.messenger.BuildConfig", loadPackageParam.classLoader);
+        Field versionCodeField = findField(BuildConfigClass, "VERSION_CODE");
+        int versionCode = versionCodeField.getInt(null);
+
+        final Class<?> EmojiClass = findClass("org.telegram.android.Emoji", loadPackageParam.classLoader);
+
+        XC_MethodReplacement replaceEmoji_methodReplacement = new XC_MethodReplacement() {
+            @Override
+            protected Object replaceHookedMethod(MethodHookParam methodHookParam) throws Throwable {
+                XSharedPreferences preferences = new XSharedPreferences(loadPackageParam.packageName, "mainconfig");
+                if (preferences.getBoolean("use_android_emoji", true)) {
+                    CharSequence cs = ((CharSequence) methodHookParam.args[0]);
+                    if (cs == null || cs.length() == 0) {
+                        return cs;
                     }
-                });
+                    Spannable s;
+                    if (cs instanceof Spannable) {
+                        s = (Spannable) cs;
+                    } else {
+                        s = Spannable.Factory.getInstance().newSpannable(cs);
+                    }
+                    return s;
+                }
+                return XposedBridge.invokeOriginalMethod(methodHookParam.method, methodHookParam.thisObject, methodHookParam.args);
+            }
+        };
+
+        if (versionCode < 578) {
+            findAndHookMethod(EmojiClass,
+                    "replaceEmoji", CharSequence.class, Paint.FontMetricsInt.class, int.class,
+                    replaceEmoji_methodReplacement);
+        } else {
+            findAndHookMethod(EmojiClass,
+                    "replaceEmoji", CharSequence.class, Paint.FontMetricsInt.class, int.class, boolean.class,
+                    replaceEmoji_methodReplacement);
+        }
 
         final Class<?> EmojiView = findClass("org.telegram.ui.Components.EmojiView", loadPackageParam.classLoader);
         final Class<?> EmojiGridAdapter = findClass("org.telegram.ui.Components.EmojiView.EmojiGridAdapter", loadPackageParam.classLoader);
@@ -114,8 +121,8 @@ public class Xposed implements IXposedHookLoadPackage {
                             });
 
                             Context context = textView.getContext();
-                            int drawImgSize = getStaticIntField(Emoji, "drawImgSize");
-                            int bigImgSize = getStaticIntField(Emoji, "bigImgSize");
+                            int drawImgSize = getStaticIntField(EmojiClass, "drawImgSize");
+                            int bigImgSize = getStaticIntField(EmojiClass, "bigImgSize");
                             if (preferences.getBoolean("big_emoji_page", true)) {
                                 textView.setTextSize(TypedValue.COMPLEX_UNIT_PX, bigImgSize);
                             } else {
@@ -278,6 +285,7 @@ public class Xposed implements IXposedHookLoadPackage {
                                 } else if (position > sendByEnterRow + 2) {
                                     position -= 2;
                                 }
+                                assert onItemClickListener != null;
                                 onItemClickListener.onItemClick(parent, view, position, id);
                             }
                         });
