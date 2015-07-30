@@ -244,53 +244,58 @@ public class Xposed implements IXposedHookLoadPackage {
 
         final Method setChecked = findMethodExact(TextCheckCell, "setChecked", boolean.class);
 
-        findAndHookMethod(SettingsActivity, "createView", Context.class, LayoutInflater.class,
-                new XC_MethodHook() {
+        XC_MethodHook settingMethodHook = new XC_MethodHook() {
+            @Override
+            protected void afterHookedMethod(final MethodHookParam param) throws Throwable {
+                ListView listView = (ListView) listViewField.get(param.thisObject);
+                final AdapterView.OnItemClickListener onItemClickListener = listView.getOnItemClickListener();
+                final int sendByEnterRow = sendByEnterRowField.getInt(param.thisObject);
+                listView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
                     @Override
-                    protected void afterHookedMethod(final MethodHookParam param) throws Throwable {
-                        ListView listView = (ListView) listViewField.get(param.thisObject);
-                        final AdapterView.OnItemClickListener onItemClickListener = listView.getOnItemClickListener();
-                        final int sendByEnterRow = sendByEnterRowField.getInt(param.thisObject);
-                        listView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
-                            @Override
-                            public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
-                                if (position == sendByEnterRow + 1) {
-                                    SharedPreferences preferences = parent.getContext().getSharedPreferences("mainconfig", Activity.MODE_PRIVATE);
-                                    boolean use = preferences.getBoolean("use_android_emoji", true);
-                                    SharedPreferences.Editor editor = preferences.edit();
-                                    editor.putBoolean("use_android_emoji", !use);
-                                    editor.commit();
-                                    if (TextCheckCell.equals(view.getClass())) {
-                                        try {
-                                            setChecked.invoke(view, !use);
-                                        } catch (Exception e) {
-                                            e.printStackTrace();
-                                        }
-                                    }
-                                    return;
-                                } else if (position == sendByEnterRow + 2) {
-                                    SharedPreferences preferences = parent.getContext().getSharedPreferences("mainconfig", Activity.MODE_PRIVATE);
-                                    boolean big = preferences.getBoolean("big_emoji_page", true);
-                                    SharedPreferences.Editor editor = preferences.edit();
-                                    editor.putBoolean("big_emoji_page", !big);
-                                    editor.commit();
-                                    if (TextCheckCell.equals(view.getClass())) {
-                                        try {
-                                            setChecked.invoke(view, !big);
-                                        } catch (Exception e) {
-                                            e.printStackTrace();
-                                        }
-                                    }
-                                    return;
-                                } else if (position > sendByEnterRow + 2) {
-                                    position -= 2;
+                    public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
+                        if (position == sendByEnterRow + 1) {
+                            SharedPreferences preferences = parent.getContext().getSharedPreferences("mainconfig", Activity.MODE_PRIVATE);
+                            boolean use = preferences.getBoolean("use_android_emoji", true);
+                            SharedPreferences.Editor editor = preferences.edit();
+                            editor.putBoolean("use_android_emoji", !use);
+                            editor.commit();
+                            if (TextCheckCell.equals(view.getClass())) {
+                                try {
+                                    setChecked.invoke(view, !use);
+                                } catch (Exception e) {
+                                    e.printStackTrace();
                                 }
-                                assert onItemClickListener != null;
-                                onItemClickListener.onItemClick(parent, view, position, id);
                             }
-                        });
+                            return;
+                        } else if (position == sendByEnterRow + 2) {
+                            SharedPreferences preferences = parent.getContext().getSharedPreferences("mainconfig", Activity.MODE_PRIVATE);
+                            boolean big = preferences.getBoolean("big_emoji_page", true);
+                            SharedPreferences.Editor editor = preferences.edit();
+                            editor.putBoolean("big_emoji_page", !big);
+                            editor.commit();
+                            if (TextCheckCell.equals(view.getClass())) {
+                                try {
+                                    setChecked.invoke(view, !big);
+                                } catch (Exception e) {
+                                    e.printStackTrace();
+                                }
+                            }
+                            return;
+                        } else if (position > sendByEnterRow + 2) {
+                            position -= 2;
+                        }
+                        assert onItemClickListener != null;
+                        onItemClickListener.onItemClick(parent, view, position, id);
                     }
                 });
+            }
+        };
+        if (versionCode < 578) {
+            findAndHookMethod(SettingsActivity, "createView", Context.class, LayoutInflater.class,
+                    settingMethodHook);
+        } else {
+            findAndHookMethod(SettingsActivity, "createView", Context.class, settingMethodHook);
+        }
     }
 
     private String convert(long paramLong) {
