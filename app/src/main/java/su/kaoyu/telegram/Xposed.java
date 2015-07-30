@@ -150,7 +150,7 @@ public class Xposed implements IXposedHookLoadPackage {
             protected Object replaceHookedMethod(MethodHookParam methodHookParam) throws Throwable {
                 Object SettingsActivityObject = XposedHelpers.getSurroundingThis(methodHookParam.thisObject);
                 int rowCount = rowCountField.getInt(SettingsActivityObject);
-                return rowCount + 2;
+                return rowCount + 3;
             }
         });
 
@@ -160,13 +160,13 @@ public class Xposed implements IXposedHookLoadPackage {
                 Object SettingsActivityObject = XposedHelpers.getSurroundingThis(methodHookParam.thisObject);
                 int sendByEnterRow = sendByEnterRowField.getInt(SettingsActivityObject);
                 int i = (int) methodHookParam.args[0];
-                if (i == sendByEnterRow + 1) {
+                if (i == sendByEnterRow + 1 || i == sendByEnterRow + 2) {
                     return true;
-                } else if (i == sendByEnterRow + 2) {
+                } else if (i == sendByEnterRow + 3) {
                     XSharedPreferences preferences = new XSharedPreferences(loadPackageParam.packageName, "mainconfig");
                     return preferences.getBoolean("use_android_emoji", true);
-                } else if (i >= sendByEnterRow + 2) {
-                    methodHookParam.args[0] = i - 2;
+                } else if (i >= sendByEnterRow + 3) {
+                    methodHookParam.args[0] = i - 3;
                 }
                 return XposedBridge.invokeOriginalMethod(methodHookParam.method, methodHookParam.thisObject, methodHookParam.args);
             }
@@ -181,10 +181,10 @@ public class Xposed implements IXposedHookLoadPackage {
                 Object SettingsActivityObject = XposedHelpers.getSurroundingThis(param.thisObject);
                 int sendByEnterRow = sendByEnterRowField.getInt(SettingsActivityObject);
                 int i = (int) param.args[0];
-                if (i == sendByEnterRow + 1 || i == sendByEnterRow + 2) {
+                if (i == sendByEnterRow + 1 || i == sendByEnterRow + 2 || i == sendByEnterRow + 3) {
                     param.args[0] = sendByEnterRow;
-                } else if (i > sendByEnterRow + 2) {
-                    param.args[0] = i - 2;
+                } else if (i > sendByEnterRow + 3) {
+                    param.args[0] = i - 3;
                 }
             }
         });
@@ -200,14 +200,17 @@ public class Xposed implements IXposedHookLoadPackage {
                             mRow.set("sendByEnterRow");
                         } else if (i == sendByEnterRow + 1) {
                             param.args[0] = sendByEnterRow;
-                            mRow.set("useAndroidEmojiRow");
+                            mRow.set("doNotSendTyping");
                         } else if (i == sendByEnterRow + 2) {
+                            param.args[0] = sendByEnterRow;
+                            mRow.set("useAndroidEmojiRow");
+                        } else if (i == sendByEnterRow + 3) {
                             param.args[0] = sendByEnterRow;
                             mRow.set("bigEmojiPageRow");
                         } else {
                             mRow.set("otherRow");
-                            if (i > sendByEnterRow + 2) {
-                                param.args[0] = i - 2;
+                            if (i > sendByEnterRow + 3) {
+                                param.args[0] = i - 3;
                             }
                         }
                     }
@@ -224,6 +227,12 @@ public class Xposed implements IXposedHookLoadPackage {
                     @Override
                     protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
                         if ("sendByEnterRow".equals(mRow.get())) {
+                            param.args[2] = true;
+                        } else if ("doNotSendTyping".equals(mRow.get())) {
+                            View view = (View) param.thisObject;
+                            SharedPreferences preferences = view.getContext().getSharedPreferences("mainconfig", Activity.MODE_PRIVATE);
+                            param.args[0] = "Do Not Send Typing";
+                            param.args[1] = preferences.getBoolean("do_not_send_typing", false);
                             param.args[2] = true;
                         } else if ("useAndroidEmojiRow".equals(mRow.get())) {
                             View view = (View) param.thisObject;
@@ -255,6 +264,20 @@ public class Xposed implements IXposedHookLoadPackage {
                     public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
                         if (position == sendByEnterRow + 1) {
                             SharedPreferences preferences = parent.getContext().getSharedPreferences("mainconfig", Activity.MODE_PRIVATE);
+                            boolean send = preferences.getBoolean("do_not_send_typing", false);
+                            SharedPreferences.Editor editor = preferences.edit();
+                            editor.putBoolean("do_not_send_typing", !send);
+                            editor.commit();
+                            if (TextCheckCell.equals(view.getClass())) {
+                                try {
+                                    setChecked.invoke(view, !send);
+                                } catch (Exception e) {
+                                    e.printStackTrace();
+                                }
+                            }
+                            return;
+                        } else if (position == sendByEnterRow + 2) {
+                            SharedPreferences preferences = parent.getContext().getSharedPreferences("mainconfig", Activity.MODE_PRIVATE);
                             boolean use = preferences.getBoolean("use_android_emoji", true);
                             SharedPreferences.Editor editor = preferences.edit();
                             editor.putBoolean("use_android_emoji", !use);
@@ -267,7 +290,7 @@ public class Xposed implements IXposedHookLoadPackage {
                                 }
                             }
                             return;
-                        } else if (position == sendByEnterRow + 2) {
+                        } else if (position == sendByEnterRow + 3) {
                             SharedPreferences preferences = parent.getContext().getSharedPreferences("mainconfig", Activity.MODE_PRIVATE);
                             boolean big = preferences.getBoolean("big_emoji_page", true);
                             SharedPreferences.Editor editor = preferences.edit();
@@ -281,8 +304,8 @@ public class Xposed implements IXposedHookLoadPackage {
                                 }
                             }
                             return;
-                        } else if (position > sendByEnterRow + 2) {
-                            position -= 2;
+                        } else if (position > sendByEnterRow + 3) {
+                            position -= 3;
                         }
                         assert onItemClickListener != null;
                         onItemClickListener.onItemClick(parent, view, position, id);
@@ -296,6 +319,20 @@ public class Xposed implements IXposedHookLoadPackage {
         } else {
             findAndHookMethod(SettingsActivity, "createView", Context.class, settingMethodHook);
         }
+
+        findAndHookMethod("org.telegram.android.MessagesController", loadPackageParam.classLoader,
+                "sendTyping", long.class, int.class, int.class, new XC_MethodReplacement() {
+                    @Override
+                    protected Object replaceHookedMethod(MethodHookParam methodHookParam) throws Throwable {
+                        XSharedPreferences preferences = new XSharedPreferences(loadPackageParam.packageName, "mainconfig");
+                        if (preferences.getBoolean("do_not_send_typing", false)) {
+                            return null;
+                        } else {
+                            return XposedBridge.invokeOriginalMethod(methodHookParam.method,
+                                    methodHookParam.thisObject, methodHookParam.args);
+                        }
+                    }
+                });
     }
 
     private String convert(long paramLong) {
