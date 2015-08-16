@@ -15,8 +15,13 @@ import android.widget.ListView;
 
 import com.amulyakhare.textdrawable.TextDrawable;
 
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.math.BigInteger;
+import java.util.AbstractMap;
+import java.util.List;
+import java.util.Locale;
 
 import de.robv.android.xposed.IXposedHookLoadPackage;
 import de.robv.android.xposed.XC_MethodHook;
@@ -26,7 +31,12 @@ import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.XposedHelpers;
 import de.robv.android.xposed.callbacks.XC_LoadPackage;
 
-import static de.robv.android.xposed.XposedHelpers.*;
+import static de.robv.android.xposed.XposedHelpers.findAndHookMethod;
+import static de.robv.android.xposed.XposedHelpers.findClass;
+import static de.robv.android.xposed.XposedHelpers.findConstructorExact;
+import static de.robv.android.xposed.XposedHelpers.findField;
+import static de.robv.android.xposed.XposedHelpers.findMethodExact;
+import static de.robv.android.xposed.XposedHelpers.getStaticIntField;
 
 public class Xposed implements IXposedHookLoadPackage {
 
@@ -315,6 +325,66 @@ public class Xposed implements IXposedHookLoadPackage {
                             } else {
                                 return XposedBridge.invokeOriginalMethod(methodHookParam.method,
                                         methodHookParam.thisObject, methodHookParam.args);
+                            }
+                        }
+                    });
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        //聊天界面搜索
+        try {
+            final Class<?> MessagesSearchQueryClass = findClass("org.telegram.android.query.MessagesSearchQuery", loadPackageParam.classLoader);
+            final List searchResultMessages = (List) XposedHelpers.getStaticObjectField(MessagesSearchQueryClass, "searchResultMessages");
+
+            Class<?> MessageClass = findClass("org.telegram.messenger.TLRPC.Message", loadPackageParam.classLoader);
+            final Constructor<?> MessageConstructor = findConstructorExact(MessageClass);
+
+            final Field MessageIdField = findField(MessageClass, "id");
+
+            final Class<?> MessageObjectClass = findClass("org.telegram.android.MessageObject", loadPackageParam.classLoader);
+            final Constructor<?> MessageObjectConstructor = findConstructorExact(MessageObjectClass, MessageClass, AbstractMap.class, boolean.class);
+
+            final Class<?> MessagesStorageClass = findClass("org.telegram.android.MessagesStorage", loadPackageParam.classLoader);
+            final Method getDatabaseMethod = findMethodExact(MessagesStorageClass, "getDatabase");
+
+            final Class<?> SQLiteDatabaseClass = findClass("org.telegram.SQLite.SQLiteDatabase", loadPackageParam.classLoader);
+            final Method queryFinalizedMethod = findMethodExact(SQLiteDatabaseClass, "queryFinalized", String.class, Object[].class);
+
+            final Class<?> SQLiteCursorClass = findClass("org.telegram.SQLite.SQLiteCursor", loadPackageParam.classLoader);
+            final Method nextMethod = findMethodExact(SQLiteCursorClass, "next");
+            final Method intValueMethod = findMethodExact(SQLiteCursorClass, "intValue", int.class);
+            final Method disposeMethod = findMethodExact(SQLiteCursorClass, "dispose");
+
+
+            findAndHookMethod(MessagesSearchQueryClass, "searchMessagesInChat", String.class, long.class, int.class, int.class,
+                    new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+                            final String query = (String) param.args[0];
+                            final long dialog_id = (long) param.args[1];
+                            if (query != null) {
+                                BigInteger bigInteger = new BigInteger(1, query.getBytes());
+                                if (bigInteger.bitLength() > 2) {//查询词太短时忽略
+                                    final Object database = getDatabaseMethod.invoke(XposedHelpers.callStaticMethod(MessagesStorageClass, "getInstance"));
+                                    final String format = String.format(Locale.US, "SELECT mid FROM messages WHERE uid = %d AND quote(data) LIKE '%%55__%%%X%%2063ED3D%%' ORDER BY date DESC", dialog_id, bigInteger);
+                                    final Object SQLiteCursor = queryFinalizedMethod.invoke(database, format, new Object[]{});
+
+                                    searchResultMessages.clear();
+                                    while (((boolean) nextMethod.invoke(SQLiteCursor))) {
+                                        final Object id = intValueMethod.invoke(SQLiteCursor, 0);
+                                        Object Message = MessageConstructor.newInstance();
+                                        MessageIdField.set(Message, id);
+                                        final Object MessageObject = MessageObjectConstructor.newInstance(Message, null, false);
+                                        searchResultMessages.add(MessageObject);
+                                    }
+                                    disposeMethod.invoke(SQLiteCursor);
+
+                                    XposedHelpers.setStaticBooleanField(MessagesSearchQueryClass, "messagesSearchEndReached", true);
+                                    XposedHelpers.setStaticIntField(MessagesSearchQueryClass, "lastReturnedNum", -1);
+                                    param.args[0] = null;
+                                    param.args[3] = 1;
+                                }
                             }
                         }
                     });
