@@ -52,7 +52,8 @@ public class Xposed implements IXposedHookLoadPackage {
         Field versionCodeField = findField(BuildConfigClass, "VERSION_CODE");
         int versionCode = versionCodeField.getInt(null);
 
-        final Class<?> EmojiClass = findClass("org.telegram.android.Emoji", loadPackageParam.classLoader);
+        final Class<?> EmojiClass = findClass(versionCode < 621 ?
+                "org.telegram.android.Emoji" : "org.telegram.messenger.Emoji", loadPackageParam.classLoader);
 
 
         XC_MethodReplacement replaceEmoji_methodReplacement = new XC_MethodReplacement() {
@@ -257,7 +258,7 @@ public class Xposed implements IXposedHookLoadPackage {
                                 boolean send = preferences.getBoolean("do_not_send_typing", false);
                                 SharedPreferences.Editor editor = preferences.edit();
                                 editor.putBoolean("do_not_send_typing", !send);
-                                editor.commit();
+                                editor.apply();
                                 if (TextCheckCell.equals(view.getClass())) {
                                     try {
                                         setChecked.invoke(view, !send);
@@ -271,7 +272,7 @@ public class Xposed implements IXposedHookLoadPackage {
                                 boolean use = preferences.getBoolean("use_android_emoji", true);
                                 SharedPreferences.Editor editor = preferences.edit();
                                 editor.putBoolean("use_android_emoji", !use);
-                                editor.commit();
+                                editor.apply();
                                 if (TextCheckCell.equals(view.getClass())) {
                                     try {
                                         setChecked.invoke(view, !use);
@@ -285,7 +286,7 @@ public class Xposed implements IXposedHookLoadPackage {
                                 boolean big = preferences.getBoolean("big_emoji_page", true);
                                 SharedPreferences.Editor editor = preferences.edit();
                                 editor.putBoolean("big_emoji_page", !big);
-                                editor.commit();
+                                editor.apply();
                                 if (TextCheckCell.equals(view.getClass())) {
                                     try {
                                         setChecked.invoke(view, !big);
@@ -315,7 +316,9 @@ public class Xposed implements IXposedHookLoadPackage {
 
         //输入状态屏蔽
         try {
-            findAndHookMethod("org.telegram.android.MessagesController", loadPackageParam.classLoader,
+            findAndHookMethod(versionCode < 621 ?
+                            "org.telegram.android.MessagesController" : "org.telegram.messenger.MessagesController",
+                    loadPackageParam.classLoader,
                     "sendTyping", long.class, int.class, int.class, new XC_MethodReplacement() {
                         @Override
                         protected Object replaceHookedMethod(MethodHookParam methodHookParam) throws Throwable {
@@ -334,18 +337,26 @@ public class Xposed implements IXposedHookLoadPackage {
 
         //聊天界面搜索
         try {
-            final Class<?> MessagesSearchQueryClass = findClass("org.telegram.android.query.MessagesSearchQuery", loadPackageParam.classLoader);
+            final Class<?> MessagesSearchQueryClass = findClass(versionCode < 621 ?
+                    "org.telegram.android.query.MessagesSearchQuery" : "org.telegram.messenger.query.MessagesSearchQuery"
+                    , loadPackageParam.classLoader);
             final List searchResultMessages = (List) XposedHelpers.getStaticObjectField(MessagesSearchQueryClass, "searchResultMessages");
 
-            Class<?> MessageClass = findClass("org.telegram.messenger.TLRPC.Message", loadPackageParam.classLoader);
+            Class<?> MessageClass = findClass(versionCode < 621 ?
+                    "org.telegram.messenger.TLRPC.Message" : "org.telegram.tgnet.TLRPC.Message"
+                    , loadPackageParam.classLoader);
             final Constructor<?> MessageConstructor = findConstructorExact(MessageClass);
 
             final Field MessageIdField = findField(MessageClass, "id");
 
-            final Class<?> MessageObjectClass = findClass("org.telegram.android.MessageObject", loadPackageParam.classLoader);
+            final Class<?> MessageObjectClass = findClass(versionCode < 621 ?
+                    "org.telegram.android.MessageObject" : "org.telegram.messenger.MessageObject"
+                    , loadPackageParam.classLoader);
             final Constructor<?> MessageObjectConstructor = findConstructorExact(MessageObjectClass, MessageClass, AbstractMap.class, boolean.class);
 
-            final Class<?> MessagesStorageClass = findClass("org.telegram.android.MessagesStorage", loadPackageParam.classLoader);
+            final Class<?> MessagesStorageClass = findClass(versionCode < 621 ?
+                    "org.telegram.android.MessagesStorage" : "org.telegram.messenger.MessagesStorage"
+                    , loadPackageParam.classLoader);
             final Method getDatabaseMethod = findMethodExact(MessagesStorageClass, "getDatabase");
 
             final Class<?> SQLiteDatabaseClass = findClass("org.telegram.SQLite.SQLiteDatabase", loadPackageParam.classLoader);
@@ -376,6 +387,7 @@ public class Xposed implements IXposedHookLoadPackage {
                                         Object Message = MessageConstructor.newInstance();
                                         MessageIdField.set(Message, id);
                                         final Object MessageObject = MessageObjectConstructor.newInstance(Message, null, false);
+                                        //noinspection unchecked
                                         searchResultMessages.add(MessageObject);
                                     }
                                     disposeMethod.invoke(SQLiteCursor);
